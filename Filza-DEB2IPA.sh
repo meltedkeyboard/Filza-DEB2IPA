@@ -31,10 +31,10 @@ check_env() {
     done
 }
 
-# Fetch DEB from the official server
 download_deb() {
     local url="https://tigisoftware.com/cydia/com.tigisoftware.filza_4.0.1-2_iphoneos-arm.deb"
     echo -e "${CLR_INF}[INFO] Downloading Filza tweak DEB...${CLR_RST}"
+    # Download directly into the current directory (which will be TEMP_DIR)
     if ! curl -L --user-agent "Filza26Builder/1.0" --fail -o "temp_filza.deb" "$url"; then
         echo -e "${CLR_ERR}[FAIL] Could not download DEB file.${CLR_RST}"
         return 1
@@ -43,12 +43,15 @@ download_deb() {
     return 0
 }
 
-# Unpack DEB and extract app folder
 extract_assets() {
     local target_deb=$1
     echo -e "${CLR_OK}[SUCCESS] Extracting contents from: $(basename "$target_deb")${CLR_RST}"
     
-    cp "$target_deb" .
+    # If it's not already in the current folder, copy it
+    if [ ! -f "$(basename "$target_deb")" ]; then
+        cp "$target_deb" .
+    fi
+    
     local local_deb=$(basename "$target_deb")
     
     if ! ar -x "$local_deb"; then
@@ -64,21 +67,25 @@ extract_assets() {
     return 0
 }
 
-# Build the final IPA
-pack_ipa() {
+AsLongAsWereTogetherTheresNoPlaceIdRatherBe() {
     local output=$1
     echo -e "${CLR_OK}[SUCCESS] Building IPA structure...${CLR_RST}"
-    mkdir -p Payload
+    rm -rf Payload && mkdir -p Payload
 
     if [ -d "Applications/Filza.app" ]; then
         cp -R Applications/Filza.app Payload/
     else
-        find . -type d -name "Filza.app" -exec cp -R {} Payload/ \;
+        find . -path "./Payload" -prune -o -type d -name "Filza.app" -exec cp -R {} Payload/ \; 2>/dev/null
+    fi
+
+    if [ ! -d "Payload/Filza.app" ]; then
+        echo -e "${CLR_ERR}[FAIL] Filza.app folder not found after extraction.${CLR_RST}"
+        return 1
     fi
 
     [[ "$output" != *.ipa ]] && output="${output}.ipa"
 
-    if ! zip -r "../../$output" Payload > /dev/null 2>&1; then
+    if ! zip -r "../$output" Payload > /dev/null 2>&1; then
         echo -e "${CLR_ERR}[FAIL] Zip compression failed.${CLR_RST}"
         return 1
     fi
@@ -86,7 +93,7 @@ pack_ipa() {
 }
 
 # Parse Arguments
-if [ $# -lt 3 ]; then
+if [ $# -lt 1 ]; then
     show_usage
 fi
 
@@ -108,9 +115,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate input
-if [ "$DOWNLOAD_MODE" = false ] && [ ! -f "$DEB_PATH" ]; then
-    echo -e "${CLR_ERR}[ERROR] Local DEB file not found: $DEB_PATH${CLR_RST}"
-    exit 1
+if [ "$DOWNLOAD_MODE" = false ]; then
+    if [ -z "$DEB_PATH" ] || [ ! -f "$DEB_PATH" ]; then
+        echo -e "${CLR_ERR}[ERROR] Local DEB file not found: $DEB_PATH${CLR_RST}"
+        exit 1
+    fi
+    # RESOLVE ABSOLUTE PATH BEFORE CD
+    DEB_PATH=$(realpath "$DEB_PATH")
 fi
 
 if [ -z "$OUT_IPA" ]; then
@@ -131,12 +142,9 @@ cd "$TEMP_DIR" || exit 1
 
 if [ "$DOWNLOAD_MODE" = true ]; then
     download_deb || exit 1
-else
-    # Resolve absolute path for local file
-    DEB_PATH=$(realpath "$DEB_PATH")
 fi
 
-if extract_assets "$DEB_PATH" && pack_ipa "$OUT_IPA"; then
+if extract_assets "$DEB_PATH" && AsLongAsWereTogetherTheresNoPlaceIdRatherBe "$OUT_IPA"; then
     cd ..
     rm -rf "$TEMP_DIR"
     echo -e "\n${CLR_OK}[DONE] File created: $OUT_IPA${CLR_RST}"
